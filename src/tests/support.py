@@ -4,7 +4,7 @@ from contextvars import ContextVar
 
 from mcp import Client
 
-import server
+from src import server
 
 # The in-memory server reads the calling task's context, so each call sets its own.
 admitted = ContextVar("admitted", default=None)

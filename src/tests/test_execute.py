@@ -4,7 +4,7 @@ import anyio
 import psycopg
 import pytest
 
-from tests.support import call, execute, fails, rows
+from src.tests.support import call, execute, fails, rows
 
 pytestmark = pytest.mark.anyio
 

@@ -8,8 +8,9 @@ from mcp import Client
 from psycopg import sql
 from psycopg.types.json import Jsonb
 
-import server
-from tests.support import admitted, call, execute, fails, rows
+from src import server
+from src.internal import database
+from src.tests.support import admitted, call, execute, fails, rows
 
 pytestmark = pytest.mark.anyio
 
@@ -30,7 +31,7 @@ async def test_an_app_reaches_only_its_own_store(app, test_admin):
 
     admin, _ = test_admin
     spy_url = admin.set(
-        database=spy_store, username=spy_role, password=server.password(spy_store)
+        database=spy_store, username=spy_role, password=database.password(spy_store)
     )
     with psycopg.connect(spy_url.render_as_string(hide_password=False)) as connection:
         assert connection.execute("SELECT current_user").fetchone() == (spy_role,)
@@ -107,7 +108,7 @@ async def test_first_use_recovers_a_database_created_before_setup_finished(
     notes = app("notes")
     token = admitted.set(notes)
     try:
-        name = server.store()
+        name = database.store()
     finally:
         admitted.reset(token)
 
@@ -119,7 +120,7 @@ async def test_first_use_recovers_a_database_created_before_setup_finished(
         store = sql.Identifier(name)
         admin.execute(
             sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
-                store, sql.Literal(server.password(name))
+                store, sql.Literal(database.password(name))
             )
         )
         admin.execute(sql.SQL("CREATE DATABASE {}").format(store))
@@ -135,10 +136,10 @@ def legacy_store(app, test_admin):
     notes = app("notes")
     token = admitted.set(notes)
     try:
-        name = server.store()
+        name = database.store()
     finally:
         admitted.reset(token)
-    password = server.password(name)
+    password = database.password(name)
 
     admin_url, _ = test_admin
     with psycopg.connect(

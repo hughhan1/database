@@ -10,8 +10,9 @@ from mcp.server.auth.provider import AccessToken
 from psycopg import sql
 from sqlalchemy import make_url
 
-import server
-from tests.support import admitted
+from src import server
+from src.internal import database
+from src.tests.support import admitted
 
 
 @pytest.fixture
@@ -35,7 +36,7 @@ def test_cluster():
 
 
 @pytest.fixture(autouse=True)
-def test_admin(monkeypatch, test_cluster):
+def test_admin(monkeypatch, test_cluster, start):
     """Create a test-owned admin and clean up only its exact role and store names."""
     name = f"test_admin_{uuid4().hex}"
     admin = test_cluster.set(username=name, password=uuid4().hex)
@@ -43,7 +44,7 @@ def test_admin(monkeypatch, test_cluster):
     stores = set()
     monkeypatch.setenv("DATABASE_URL", admin.render_as_string(hide_password=False))
     monkeypatch.setattr("holon.context.get_access_token", admitted.get)
-    importlib.reload(server)
+    start()
     with psycopg.connect(
         test_cluster.render_as_string(hide_password=False), autocommit=True
     ) as cluster:
@@ -69,7 +70,8 @@ def start():
     """Restart the provider with the current environment and empty process caches."""
 
     def start():
-        importlib.reload(server)
+        database.admin.cache_clear()
+        database.engine.cache_clear()
 
     return start
 
@@ -86,7 +88,7 @@ def app(test_admin):
         )
         token = admitted.set(identity)
         try:
-            stores.add(server.store())
+            stores.add(database.store())
         finally:
             admitted.reset(token)
         return identity
@@ -97,8 +99,13 @@ def app(test_admin):
 @pytest.fixture
 def replica(monkeypatch):
     """Load a second provider with its own process-local caches."""
-    spec = importlib.util.spec_from_file_location("database_replica", server.__file__)
-    module = importlib.util.module_from_spec(spec)
-    monkeypatch.setitem(sys.modules, spec.name, module)
-    spec.loader.exec_module(module)
+    with monkeypatch.context() as modules:
+        for name, path in (
+            (database.__name__, database.__file__),
+            ("database_replica", server.__file__),
+        ):
+            spec = importlib.util.spec_from_file_location(name, path)
+            module = importlib.util.module_from_spec(spec)
+            modules.setitem(sys.modules, name, module)
+            spec.loader.exec_module(module)
     return module.server

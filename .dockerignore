@@ -3,4 +3,7 @@
 !pyproject.toml
 !uv.lock
 !src/
+!src/__init__.py
 !src/server.py
+!src/internal/
+!src/internal/*.py

@@ -26,7 +26,7 @@ package = false
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]
 testpaths = ["src/tests"]
-pythonpath = ["src"]
+pythonpath = ["."]
 
 [tool.ruff]
 extend-exclude = ["holon"]
@@ -45,7 +45,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-# pytest asserts with `assert`; mypy checks only server.py.
+# pytest uses assert and untyped fixtures.
 "src/tests/**" = ["ANN", "S101", "PLR2004"]
 
 # holon-sh's package, also where `holon types generate` writes holon.apps locally.
@@ -54,5 +54,5 @@ known-third-party = ["holon"]
 
 [tool.mypy]
 strict = true
-files = ["src/server.py"]
+files = ["src/server.py", "src/internal"]
 warn_unreachable = true
