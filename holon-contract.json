@@ -1,0 +1,150 @@
+{
+  "identity": {
+    "name": "io.github.hughhan1/database",
+    "version": "0.1.5"
+  },
+  "schema": {
+    "tools": [
+      {
+        "name": "execute",
+        "inputSchema": {
+          "type": "object",
+          "$defs": {
+            "Statement": {
+              "properties": {
+                "sql": {
+                  "title": "Sql",
+                  "type": "string"
+                },
+                "values": {
+                  "additionalProperties": {
+                    "$ref": "#/$defs/Value"
+                  },
+                  "default": {},
+                  "title": "Values",
+                  "type": "object"
+                },
+                "expect": {
+                  "anyOf": [
+                    {
+                      "type": "integer"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null,
+                  "title": "Expect"
+                }
+              },
+              "required": [
+                "sql"
+              ],
+              "title": "Statement",
+              "type": "object"
+            },
+            "Value": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "items": {
+                    "$ref": "#/$defs/Value"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "properties": {
+            "statements": {
+              "items": {
+                "$ref": "#/$defs/Statement"
+              },
+              "maxItems": 100,
+              "title": "Statements",
+              "type": "array"
+            },
+            "key": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "title": "Key"
+            }
+          },
+          "required": [
+            "statements"
+          ],
+          "title": "executeArguments"
+        },
+        "outputSchema": {
+          "$defs": {
+            "Result": {
+              "properties": {
+                "columns": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "Columns",
+                  "type": "array"
+                },
+                "rows": {
+                  "items": {
+                    "items": {},
+                    "type": "array"
+                  },
+                  "title": "Rows",
+                  "type": "array"
+                },
+                "count": {
+                  "title": "Count",
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "columns",
+                "rows",
+                "count"
+              ],
+              "title": "Result",
+              "type": "object"
+            }
+          },
+          "properties": {
+            "result": {
+              "items": {
+                "$ref": "#/$defs/Result"
+              },
+              "title": "Result",
+              "type": "array"
+            }
+          },
+          "required": [
+            "result"
+          ],
+          "title": "executeOutput",
+          "type": "object"
+        }
+      }
+    ]
+  }
+}

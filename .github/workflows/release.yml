@@ -1,0 +1,92 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+env:
+  IMAGE: ghcr.io/hughhan1/database
+  CONTRACT_MEDIA_TYPE: application/vnd.holon.mcp-contract.v1+json
+
+jobs:
+  image:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Check release version
+        run: |
+          version=$(jq -r .version server.json)
+          test "$GITHUB_REF_NAME" = "v$version"
+          test "$(jq -r .identity.version holon-contract.json)" = "$version"
+          test "$(jq -r .identity.name holon-contract.json)" = "$(jq -r .name server.json)"
+          test "$(jq -r '.packages[0].identifier' server.json)" = "$IMAGE:$version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v7
+        id: build
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.IMAGE }}:runtime-${{ env.VERSION }}
+          provenance: false
+          sbom: false
+      - name: Include the Holon tool contract in the image index
+        env:
+          RUNTIME_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          curl -fsSL -o oras.tar.gz https://github.com/oras-project/oras/releases/download/v1.3.6/oras_1.3.6_linux_amd64.tar.gz
+          echo '66fb0ad7206f3f6fa77ed5b552049d364ccf4b50b1684554f731f76302b52ca0  oras.tar.gz' | sha256sum -c
+          tar xzf oras.tar.gz oras
+          contract_ref="$IMAGE:contract-$VERSION"
+          ./oras push --artifact-type "$CONTRACT_MEDIA_TYPE" "$contract_ref" "holon-contract.json:$CONTRACT_MEDIA_TYPE"
+          ./oras manifest fetch --descriptor "$contract_ref" > contract-descriptor.json
+          ./oras manifest fetch "$IMAGE@$RUNTIME_DIGEST" > runtime-index.json
+          jq --arg digest "sha256:$(sha256sum holon-contract.json | cut -d ' ' -f 1)" \
+            --arg name "$(jq -r .name server.json)" \
+            --arg media "$CONTRACT_MEDIA_TYPE" --slurpfile contract contract-descriptor.json \
+            '.mediaType = "application/vnd.oci.image.index.v1+json"
+             | .annotations["sh.holon.contract.digest"] = $digest
+             | .annotations["io.modelcontextprotocol.server.name"] = $name
+             | .manifests += [$contract[0] + {artifactType: $media, platform: {os: "unknown", architecture: "unknown"}}]' \
+            runtime-index.json > release-index.json
+          ./oras manifest push "$IMAGE:$VERSION" release-index.json
+
+  registry:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - name: Publish the version pinned to the image digest
+        run: |
+          version=$(jq -r .version server.json)
+          token=$(curl -fsSL "https://ghcr.io/token?service=ghcr.io&scope=repository:hughhan1/database:pull" | jq -er .token)
+          curl -fsSL -D image.headers -o image.json \
+            -H "Authorization: Bearer $token" \
+            -H "Accept: application/vnd.oci.image.index.v1+json" \
+            "https://ghcr.io/v2/hughhan1/database/manifests/$version"
+          digest=$(awk 'tolower($1) == "docker-content-digest:" { gsub(/\r/, "", $2); print $2 }' image.headers)
+          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+          jq -e '.annotations["sh.holon.contract.digest"] | startswith("sha256:")' image.json
+          jq --arg image "$IMAGE@$digest" '.packages[0].identifier = $image' server.json > release.json
+          curl -fsSL -o publisher.tar.gz https://github.com/modelcontextprotocol/registry/releases/download/v1.8.9/mcp-publisher_linux_amd64.tar.gz
+          echo '4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8  publisher.tar.gz' | sha256sum -c
+          tar xzf publisher.tar.gz mcp-publisher
+          ./mcp-publisher validate release.json
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish release.json

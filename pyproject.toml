@@ -1,0 +1,58 @@
+[project]
+name = "holon-database"
+version = "0.1.5"
+description = "A private Postgres store for each app that requires database"
+requires-python = ">=3.15,<3.16"
+dependencies = [
+  "anyio>=4,<5",
+  "certifi>=2026.0.0",
+  "holon-sh==0.0.1.dev14",
+  "mcp~=2.3.0",
+  "pglast>=7,<8",
+  "psycopg[binary]~=3.3.9",
+  "sqlalchemy[asyncio]>=2.1,<2.2",
+]
+
+[dependency-groups]
+dev = [
+  "mypy>=2.4,<3",
+  "pytest>=9,<10",
+  "ruff>=0.13,<1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+addopts = ["--import-mode=importlib"]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+extend-exclude = ["holon"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "COM812", # conflicts with ruff format: https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules
+  "CPY001", # no copyright headers
+  "D", # the SDK publishes each tool's __doc__ as its description
+  "EM101", # ToolError messages are the errors callers see
+  "EM102",
+  "TRY003",
+  "S608", # callers write the SQL, which runs in their own store as its own role
+  "TC003", # the SDK evaluates tool annotations at registration
+]
+
+[tool.ruff.lint.per-file-ignores]
+# pytest asserts with `assert`; mypy checks only server.py.
+"tests/**" = ["ANN", "S101", "PLR2004"]
+
+# holon-sh's package, also where `holon types generate` writes holon.apps locally.
+[tool.ruff.lint.isort]
+known-third-party = ["holon"]
+
+[tool.mypy]
+strict = true
+files = ["server.py"]
+warn_unreachable = true

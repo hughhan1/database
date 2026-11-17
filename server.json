@@ -1,0 +1,53 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.hughhan1/database",
+  "version": "0.1.5",
+  "description": "Give each Holon app a private PostgreSQL store with atomic SQL batches and retry keys.",
+  "_meta": {
+    "io.modelcontextprotocol.registry/publisher-provided": {
+      "sh.holon": {
+        "egress": [
+          {
+            "host": "{DATABASE_HOST}",
+            "ports": [
+              5432
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "packages": [
+    {
+      "registryType": "oci",
+      "transport": {
+        "type": "streamable-http",
+        "url": "http://localhost:3000/mcp"
+      },
+      "environmentVariables": [
+        {
+          "name": "DATABASE_HOST",
+          "description": "The Postgres cluster's host, the only one the app may reach.",
+          "isRequired": true
+        },
+        {
+          "name": "DATABASE_USER",
+          "description": "The admin role's login name, such as postgres.<branch id> on PlanetScale.",
+          "isRequired": true
+        },
+        {
+          "name": "DATABASE_PASSWORD",
+          "description": "The admin role's password. Each store's password derives from it.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ],
+      "identifier": "ghcr.io/hughhan1/database:0.1.5"
+    }
+  ],
+  "title": "Database for Holon",
+  "repository": {
+    "url": "https://github.com/hughhan1/database",
+    "source": "github"
+  }
+}
