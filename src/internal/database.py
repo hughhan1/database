@@ -30,7 +30,7 @@ from psycopg import (
 from psycopg import (
     Error as DriverError,
 )
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel
 from sqlalchemy import URL, make_url
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
@@ -38,14 +38,6 @@ from sqlalchemy.pool import NullPool
 
 ROWS: Final = 10_000
 BYTES: Final = 4 * 1024 * 1024
-# What each call made with a key returned, so a repeat returns it again.
-KEYS: Final = """
-CREATE TABLE _holon.holon_keys (
-    key text PRIMARY KEY,
-    results jsonb,
-    at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX holon_keys_at ON _holon.holon_keys (at)"""
 
 type Value = str | int | float | bool | list[Value] | None
 
@@ -60,9 +52,6 @@ class Result(BaseModel):
     columns: list[str]
     rows: list[list[Any]]
     count: int  # rows returned or changed
-
-
-RESULTS: Final = TypeAdapter(list[Result])
 
 
 def store() -> str:
@@ -159,38 +148,6 @@ async def create(store: str) -> None:
         await connection.exec_driver_sql(
             f"REVOKE CONNECT ON DATABASE {name} FROM PUBLIC"
         )
-        metadata = create_async_engine(admin().set(database=store), poolclass=NullPool)
-        try:
-            async with metadata.begin() as own:
-                await own.exec_driver_sql("SET LOCAL search_path = pg_catalog")
-                await own.exec_driver_sql("CREATE SCHEMA IF NOT EXISTS _holon")
-                owned = await own.exec_driver_sql(
-                    "SELECT nspowner = current_user::regrole FROM pg_namespace "
-                    "WHERE nspname = '_holon'"
-                )
-                if not owned.scalar_one():
-                    raise ToolError(
-                        "The _holon schema is reserved for the database provider."
-                    )
-                existing = await own.exec_driver_sql(
-                    "SELECT to_regclass('_holon.holon_keys') AS current, "
-                    "to_regclass('public.holon_keys') AS legacy"
-                )
-                tables = existing.mappings().one()
-                if tables["current"] is None:
-                    if tables["legacy"] is not None:
-                        await own.exec_driver_sql(
-                            "ALTER TABLE public.holon_keys SET SCHEMA _holon"
-                        )
-                    else:
-                        await own.exec_driver_sql(KEYS)
-                await own.exec_driver_sql(f"GRANT USAGE ON SCHEMA _holon TO {name}")
-                await own.exec_driver_sql(
-                    "GRANT SELECT, INSERT, UPDATE, DELETE ON _holon.holon_keys "
-                    f"TO {name}"
-                )
-        finally:
-            await metadata.dispose()
         await connection.exec_driver_sql(
             f"ALTER ROLE {name} LOGIN PASSWORD '{password(store)}'"
         )
@@ -343,59 +300,15 @@ async def run(
     return Result(columns=columns, rows=rows, count=count)
 
 
-async def first(connection: AsyncConnection, key: str) -> list[Result] | None:
-    """What the call that first used key returned, or None once this call holds it.
-
-    A call that repeats a key still running waits for it, then returns what it did.
-    """
-    present = await connection.exec_driver_sql(
-        "SELECT to_regclass('_holon.holon_keys')"
-    )
-    if present.scalar_one() is None:
-        await create(store())
-    claimed = await connection.exec_driver_sql(
-        "INSERT INTO _holon.holon_keys (key) VALUES (%(key)s) "
-        "ON CONFLICT (key) DO UPDATE "
-        "SET at = now() WHERE holon_keys.at < now() - interval '24 hours'",
-        {"key": key},
-    )
-    if claimed.rowcount:
-        return None
-    earlier = await connection.exec_driver_sql(
-        "SELECT results FROM _holon.holon_keys WHERE key = %(key)s", {"key": key}
-    )
-    return RESULTS.validate_python(earlier.scalar_one())
-
-
-async def remember(
-    connection: AsyncConnection, key: str, results: list[Result]
-) -> None:
-    """Keep what this call returned under its key, and forget keys a day old."""
-    await connection.exec_driver_sql(
-        "WITH expired AS (DELETE FROM _holon.holon_keys "
-        "WHERE at < now() - interval '24 hours') "
-        "UPDATE _holon.holon_keys SET results = %(results)s WHERE key = %(key)s",
-        {"results": RESULTS.dump_json(results).decode(), "key": key},
-    )
-
-
-async def execute_batch(statements: list[Statement], key: str | None) -> list[Result]:
+async def execute_batch(statements: list[Statement]) -> list[Result]:
     try:
         async with transaction() as connection:
-            if (
-                key is not None
-                and (earlier := await first(connection, key)) is not None
-            ):
-                return earlier
             compiled = [compile_statement(i, each) for i, each in enumerate(statements)]
-            results = [
+            return [
                 await run(connection, i, each, bound)
                 for i, (each, bound) in enumerate(
                     zip(statements, compiled, strict=True)
                 )
             ]
-            if key is not None:
-                await remember(connection, key, results)
-            return results
     except DBAPIError as error:
         raise ToolError(f"The call {failure(error)}") from error

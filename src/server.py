@@ -2,25 +2,22 @@
 
 from typing import Annotated
 
-from mcp.server import MCPServer
 from pydantic import Field
 
 from src.internal.database import Result, Statement, execute_batch
+from src.internal.mcp import DatabaseServer
 
-server = MCPServer("io.github.hughhan1/database", version="0.1.6")
+server = DatabaseServer("io.github.hughhan1/database", version="0.2.0")
 
 
 @server.tool()
 async def execute(
     statements: Annotated[list[Statement], Field(max_length=100)],
-    key: str | None = None,
 ) -> list[Result]:
     """Run statements in the calling app's store in one PostgreSQL transaction.
 
-    A call that repeats a key returns the first call's results and runs nothing.
     Each entry contains one SQL statement. Transaction-control commands are refused.
     PostgreSQL rollback rules apply, including possible gaps in sequence values.
-    The _holon schema is reserved for provider metadata; do not modify its contents.
 
     A statement's sql writes :name for values[name], and :name::type casts it. Postgres
     reads a text value as whatever type its place needs, such as a timestamp or jsonb.
@@ -33,7 +30,7 @@ async def execute(
     ISO 8601, intervals as seconds, uuid as text, bytea as base64, and anything else
     as Postgres's text for it.
 
-    A statement may run 30 seconds and return 10,000 rows or 4 MiB, a call may hold
-    100 statements, and a key is remembered for 24 hours.
+    A statement may run 30 seconds and return 10,000 rows or 4 MiB.
+    A call may hold up to 100 statements.
     """
-    return await execute_batch(statements, key)
+    return await execute_batch(statements)

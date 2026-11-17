@@ -86,12 +86,9 @@ async def test_a_statement_cannot_take_control_of_the_call_transaction(app, sql)
         BOOK,
         sql,
         {"sql": "SELECT 1", "expect": 0},
-        key="retry",
     )
     assert await rows(shop, "SELECT person FROM bookings") == []
     assert "statements[1]" in error
-    await execute(shop, BOOK, key="retry")
-    assert await rows(shop, "SELECT person FROM bookings") == [["ada"]]
 
 
 async def test_procedure_transaction_control_cannot_commit_a_call(app):
@@ -122,48 +119,7 @@ async def test_sql_session_settings_and_temp_objects_are_local_to_the_call(app):
     assert await rows(shop, "SELECT to_regclass('pg_temp.scratch')") == [[None]]
 
 
-async def test_a_repeated_key_applies_once(app):
-    shop = app("shop")
-    await execute(shop, BOOKINGS)
-    first = await execute(shop, BOOK, key="ada-books")
-    assert await execute(shop, BOOK, key="ada-books") == first
-    assert await execute(shop, "SELECT 1", key="ada-books") == first
-
-    # A call that failed is not remembered, so it can be tried again.
-    await fails(shop, {**BOOK, "expect": 0}, key="retry")
-    await execute(shop, BOOK, key="retry")
-    assert await rows(shop, "SELECT count(*) FROM bookings") == [[2]]
-
-
-async def test_a_key_can_run_again_after_24_hours(app, test_admin):
-    shop = app("shop")
-    await execute(shop, BOOKINGS)
-    [[store]] = await rows(shop, "SELECT current_database()")
-    first = await execute(shop, BOOK, key="booking")
-    admin, _ = test_admin
-    with psycopg.connect(
-        admin.set(database=store).render_as_string(hide_password=False),
-        autocommit=True,
-    ) as connection:
-        connection.execute(
-            "UPDATE _holon.holon_keys SET at = now() - interval '23 hours' "
-            "WHERE key = %s",
-            ("booking",),
-        )
-        assert await execute(shop, BOOK, key="booking") == first
-        connection.execute(
-            "UPDATE _holon.holon_keys SET at = now() - interval '25 hours' "
-            "WHERE key = %s",
-            ("booking",),
-        )
-
-    second = await execute(shop, BOOK, key="booking")
-    assert second != first
-    assert await execute(shop, BOOK, key="booking") == second
-    assert await rows(shop, "SELECT count(*) FROM bookings") == [[2]]
-
-
-async def test_statement_deadline_rolls_back_writes_and_releases_the_key(app):
+async def test_statement_deadline_rolls_back_writes(app):
     shop = app("shop")
     await execute(shop, BOOKINGS)
     with anyio.fail_after(45):
@@ -172,30 +128,23 @@ async def test_statement_deadline_rolls_back_writes_and_releases_the_key(app):
             BOOK,
             "DO $$ BEGIN PERFORM set_config('statement_timeout', '0', true); "
             "PERFORM pg_sleep(60); END; $$",
-            key="booking",
         )
 
     assert "statements[1]" in error
     assert "30 seconds" in error or "SQLSTATE 57014" in error
     assert await rows(shop, "SELECT person FROM bookings") == []
-    await execute(shop, BOOK, key="booking")
+    await execute(shop, BOOK)
     assert await rows(shop, "SELECT person FROM bookings") == [["ada"]]
 
 
-async def test_cancelled_mcp_call_rolls_back_writes_and_releases_the_key(
-    app, test_admin
-):
+async def test_cancelled_mcp_call_rolls_back_writes(app, test_admin):
     shop = app("shop")
     await execute(shop, BOOKINGS)
     [[store]] = await rows(shop, "SELECT current_database()")
     admin, _ = test_admin
 
     async def book():
-        await call(
-            shop,
-            [BOOK, "SELECT pg_advisory_xact_lock(42)"],
-            "cancelled-booking",
-        )
+        await call(shop, [BOOK, "SELECT pg_advisory_xact_lock(42)"])
         pytest.fail("The blocked call completed before cancellation.")
 
     async with await psycopg.AsyncConnection.connect(
@@ -220,43 +169,8 @@ async def test_cancelled_mcp_call_rolls_back_writes_and_releases_the_key(
 
         with anyio.fail_after(10):
             assert await rows(shop, "SELECT person FROM bookings") == []
-            await execute(shop, BOOK, key="cancelled-booking")
+            await execute(shop, BOOK)
     assert await rows(shop, "SELECT person FROM bookings") == [["ada"]]
-
-
-async def test_a_key_repeated_across_replicas_applies_once(app, replica):
-    shop = app("shop")
-    await execute(shop, BOOKINGS)
-    results = []
-
-    async def book(provider):
-        results.append(
-            await execute(
-                shop, BOOK, "SELECT pg_sleep(0.2)", key="ada-books", provider=provider
-            )
-        )
-
-    async with anyio.create_task_group() as group:
-        group.start_soon(book, None)
-        group.start_soon(book, replica)
-    assert results[0] == results[1]
-    assert await rows(shop, "SELECT count(*) FROM bookings") == [[1]]
-
-
-async def test_schema_changes_keep_previous_key_results(app):
-    shop = app("shop")
-    await execute(shop, BOOKINGS)
-    booked = await execute(shop, BOOK, key="ada-books")
-
-    await execute(
-        shop,
-        "DROP SCHEMA public CASCADE",
-        "CREATE SCHEMA public",
-        "CREATE SCHEMA app_data",
-        "SET search_path = app_data",
-        key="reset-schema",
-    )
-    assert await execute(shop, "SELECT 0", key="ada-books") == booked
 
 
 async def test_values_bind_by_name_and_other_colons_are_sql(app):

@@ -8,7 +8,8 @@ of parameterized statements in one transaction.
 
 Declare `database` in the consuming app’s `sh.holon.requires` metadata in
 `server.json`. Add the provider to the same `holon.yaml` as the calling app.
-Replace `chat` in the caller list with your app’s name.
+The example pins the published registry version. Replace `chat` in the caller
+list with your app’s name.
 
 ```yaml
 - name: database
@@ -40,7 +41,6 @@ Pass one SQL statement per item and bind values by name. Holon generates
 
 ```ts
 const { result } = await apps.database.tools.execute({
-  key: requestId,
   statements: [
     {
       sql: "INSERT INTO messages (id, body) VALUES (:id, :body)",
@@ -56,11 +56,12 @@ const { result } = await apps.database.tools.execute({
 });
 ```
 
-A statement error or an `expect` mismatch rolls back the batch. For 24 hours,
-a repeat using the same key returns the original committed results. Use a new
-key for a different batch. Each statement returns column names, rows, and a
-count of rows returned or changed. The provider accepts up to 100 statements per
-call and caps each result at 10,000 rows and 4 MiB.
+A statement error or an `expect` mismatch rolls back the batch. Each statement
+returns column names, rows, and a count of rows returned or changed. The provider
+accepts up to 100 statements per call and caps each result at 10,000 rows and 4 MiB.
+
+When upgrading to 0.2.0, remove the `key` argument from tool calls and handle
+write retry deduplication in the calling app.
 
 This release supports PostgreSQL 16 or later. The tools are intended for the app’s own
 trusted server code. End users and agents should call the app’s domain tools.

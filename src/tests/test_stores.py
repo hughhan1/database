@@ -6,11 +6,10 @@ import psycopg
 import pytest
 from mcp import Client
 from psycopg import sql
-from psycopg.types.json import Jsonb
 
 from src import server
 from src.internal import database
-from src.tests.support import admitted, call, execute, fails, rows
+from src.tests.support import admitted, execute, fails, rows
 
 pytestmark = pytest.mark.anyio
 
@@ -66,6 +65,7 @@ async def test_a_store_is_made_on_first_use_and_outlives_the_provider(app, start
     [[database, role]] = await rows(notes, "SELECT current_database(), current_user")
     assert database == role
     assert database.startswith("notes_")
+    assert await rows(notes, "SELECT to_regnamespace('_holon') IS NULL") == [[True]]
     await execute(notes, *NOTES)
 
     start()
@@ -78,7 +78,24 @@ async def test_its_tools_can_be_listed_without_its_secret(start, monkeypatch):
         monkeypatch.delenv(name)
     start()
     async with Client(server.server, mode="2026-07-28") as client:
-        assert [tool.name for tool in (await client.list_tools()).tools] == ["execute"]
+        [tool] = (await client.list_tools()).tools
+        assert tool.name == "execute"
+        assert set(tool.input_schema["properties"]) == {"statements"}
+
+
+async def test_execute_rejects_obsolete_arguments_before_writing(app):
+    notes = app("notes")
+    await execute(notes, "CREATE TABLE notes (body text)")
+    token = admitted.set(notes)
+    try:
+        async with Client(server.server, mode="2026-07-28") as client:
+            result = await client.call_tool(
+                "execute", {"statements": [{"sql": NOTES[1]}], "key": "old-request"}
+            )
+    finally:
+        admitted.reset(token)
+    assert result.is_error
+    assert await rows(notes, "SELECT body FROM notes") == []
 
 
 async def test_a_new_admin_password_gives_each_store_a_new_one(
@@ -118,91 +135,17 @@ async def test_first_use_recovers_a_database_created_before_setup_finished(
         admin_url.render_as_string(hide_password=False), autocommit=True
     ) as admin:
         store = sql.Identifier(name)
-        admin.execute(
-            sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
-                store, sql.Literal(database.password(name))
-            )
-        )
+        admin.execute(sql.SQL("CREATE ROLE {} NOLOGIN").format(store))
         admin.execute(sql.SQL("CREATE DATABASE {}").format(store))
 
-    result = await execute(notes, *NOTES, key="create-notes")
+    await execute(notes, *NOTES)
     start()
-    assert await execute(notes, "SELECT 0", key="create-notes") == result
     assert await rows(notes, "SELECT body FROM notes") == [["kept"]]
-
-
-@pytest.fixture
-def legacy_store(app, test_admin):
-    notes = app("notes")
-    token = admitted.set(notes)
-    try:
-        name = database.store()
-    finally:
-        admitted.reset(token)
-    password = database.password(name)
-
-    admin_url, _ = test_admin
-    with psycopg.connect(
-        admin_url.render_as_string(hide_password=False), autocommit=True
-    ) as admin:
-        store = sql.Identifier(name)
-        admin.execute("SET createrole_self_grant = 'set, inherit'")
-        admin.execute(
-            sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
-                store, sql.Literal(password)
-            )
-        )
-        admin.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(store, store))
-        admin.execute(
-            sql.SQL("REVOKE CONNECT ON DATABASE {} FROM PUBLIC").format(store)
-        )
-
-    store_url = admin_url.set(username=name, password=password, database=name)
-    with psycopg.connect(store_url.render_as_string(hide_password=False)) as store:
-        store.execute(
-            "CREATE TABLE holon_keys ("
-            "key text PRIMARY KEY, results jsonb, "
-            "at timestamptz NOT NULL DEFAULT now())"
-        )
-        store.execute("CREATE INDEX holon_keys_at ON holon_keys (at)")
-    return notes, store_url, admin_url.set(database=name)
-
-
-async def test_key_replay_survives_upgrade_from_the_original_provider(legacy_store):
-    notes, store_url, _ = legacy_store
-    original_reply = [{"columns": ["number"], "rows": [[42]], "count": 1}]
-    with psycopg.connect(store_url.render_as_string(hide_password=False)) as store:
-        store.execute(
-            "INSERT INTO holon_keys (key, results) VALUES (%s, %s)",
-            ("original", Jsonb(original_reply)),
-        )
-
-    assert await execute(notes, "SELECT 0", key="original") == original_reply
-    assert "SQLSTATE 42501" in await fails(notes, "DROP SCHEMA _holon CASCADE")
-    await execute(notes, "DROP SCHEMA public CASCADE", "CREATE SCHEMA public")
-    assert await execute(notes, "SELECT 0", key="original") == original_reply
-
-
-async def test_upgrade_does_not_give_legacy_rules_the_admins_privileges(legacy_store):
-    notes, store_url, admin_url = legacy_store
-    with psycopg.connect(admin_url.render_as_string(hide_password=False)) as admin:
-        admin.execute("CREATE TABLE provider_secret (value text)")
-        admin.execute("INSERT INTO provider_secret VALUES ('private')")
-    with psycopg.connect(store_url.render_as_string(hide_password=False)) as store:
-        store.execute("CREATE TABLE copied (value text)")
-        store.execute(
-            "CREATE RULE copy_secret AS ON INSERT TO holon_keys DO ALSO "
-            "INSERT INTO copied SELECT value FROM provider_secret"
-        )
-
-    # The rule makes ON CONFLICT invalid, but migration has already completed.
-    assert "SQLSTATE 0A000" in await fails(notes, "SELECT 1", key="migrate")
-    response = await call(
-        notes, ["INSERT INTO _holon.holon_keys (key) VALUES ('copy')"], None
-    )
-    assert await rows(notes, "SELECT value FROM copied") == []
-    assert response.is_error
-    assert "SQLSTATE 42501" in response.content[0].text
+    assert await rows(
+        notes,
+        "SELECT pg_get_userbyid(datdba) = current_user FROM pg_database "
+        "WHERE datname = current_database()",
+    ) == [[True]]
 
 
 async def test_replicas_that_miss_the_same_store_at_once_all_get_it(app, replica):

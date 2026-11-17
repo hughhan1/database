@@ -10,7 +10,7 @@ from src import server
 admitted = ContextVar("admitted", default=None)
 
 
-async def call(by, statements, key, provider=None):
+async def call(by, statements, provider=None):
     """Calls execute as by, an app, or as a person signed out when by is None."""
     statements = [
         {"sql": each} if isinstance(each, str) else each for each in statements
@@ -18,23 +18,21 @@ async def call(by, statements, key, provider=None):
     token = admitted.set(by)
     try:
         async with Client(provider or server.server, mode="2026-07-28") as client:
-            return await client.call_tool(
-                "execute", {"statements": statements, "key": key}
-            )
+            return await client.call_tool("execute", {"statements": statements})
     finally:
         admitted.reset(token)
 
 
-async def execute(by, *statements, key=None, provider=None):
+async def execute(by, *statements, provider=None):
     """The results of a call that must succeed."""
-    result = await call(by, statements, key, provider)
+    result = await call(by, statements, provider)
     assert not result.is_error, result.content
     return result.structured_content["result"]
 
 
-async def fails(by, *statements, key=None):
+async def fails(by, *statements):
     """The error of a call that must fail."""
-    result = await call(by, statements, key)
+    result = await call(by, statements)
     assert result.is_error, result.structured_content
     return result.content[0].text
 
