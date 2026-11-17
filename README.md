@@ -76,3 +76,6 @@ uv sync --locked
 uv run pytest
 holon types generate --contract .
 ```
+
+The release workflow generates the Holon tool contract from `src/server.py`
+and bundles it with the container image.
