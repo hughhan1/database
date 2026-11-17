@@ -145,6 +145,7 @@ def legacy_store(app, test_admin):
         admin_url.render_as_string(hide_password=False), autocommit=True
     ) as admin:
         store = sql.Identifier(name)
+        admin.execute("SET createrole_self_grant = 'set, inherit'")
         admin.execute(
             sql.SQL("CREATE ROLE {} LOGIN PASSWORD {}").format(
                 store, sql.Literal(password)

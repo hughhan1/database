@@ -66,7 +66,7 @@ class Result(BaseModel):
 RESULTS: Final = TypeAdapter(list[Result])
 
 
-server = MCPServer("io.github.hughhan1/database", version="0.1.5")
+server = MCPServer("io.github.hughhan1/database", version="0.1.6")
 
 
 def store() -> str:
@@ -139,12 +139,20 @@ async def create(store: str) -> None:
         await connection.exec_driver_sql(
             "SELECT pg_advisory_lock(hashtext(%(store)s))", {"store": store}
         )
-        role = await connection.exec_driver_sql(
-            "SELECT 1 FROM pg_roles WHERE rolname = %(store)s", {"store": store}
-        )
+        can_use_role = (
+            await connection.exec_driver_sql(
+                "SELECT pg_has_role(oid, 'SET') AND pg_has_role(oid, 'USAGE') "
+                "FROM pg_roles WHERE rolname = %(store)s",
+                {"store": store},
+            )
+        ).scalar_one_or_none()
         name = connection.dialect.identifier_preparer.quote_identifier(store)
-        if not role.first():
+        if can_use_role is None:
             await connection.exec_driver_sql(f"CREATE ROLE {name} NOLOGIN")
+        if not can_use_role:
+            await connection.exec_driver_sql(
+                f"GRANT {name} TO CURRENT_USER WITH SET TRUE, INHERIT TRUE"
+            )
         database = await connection.exec_driver_sql(
             "SELECT 1 FROM pg_database WHERE datname = %(store)s", {"store": store}
         )

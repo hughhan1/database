@@ -1,6 +1,6 @@
 [project]
 name = "holon-database"
-version = "0.1.5"
+version = "0.1.6"
 description = "A private Postgres store for each app that requires database"
 requires-python = ">=3.15,<3.16"
 dependencies = [

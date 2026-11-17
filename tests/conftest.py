@@ -53,11 +53,6 @@ def test_admin(monkeypatch, test_cluster):
             )
         )
         try:
-            cluster.execute(
-                sql.SQL(
-                    "ALTER ROLE {} SET createrole_self_grant = 'set, inherit'"
-                ).format(role)
-            )
             yield admin, stores
         finally:
             for store_name in sorted(stores):

@@ -1,7 +1,7 @@
 {
   "identity": {
     "name": "io.github.hughhan1/database",
-    "version": "0.1.5"
+    "version": "0.1.6"
   },
   "schema": {
     "tools": [

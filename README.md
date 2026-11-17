@@ -14,7 +14,7 @@ Replace `chat` in the caller list with your app’s name.
 - name: database
   registry:
     name: io.github.hughhan1/database
-    version: "0.1.5"
+    version: "0.1.6"
   access:
     server:
       callers: [chat]
@@ -62,7 +62,7 @@ key for a different batch. Each statement returns column names, rows, and a
 count of rows returned or changed. The provider accepts up to 100 statements per
 call and caps each result at 10,000 rows and 4 MiB.
 
-This release supports PostgreSQL. The tools are intended for the app’s own
+This release supports PostgreSQL 16 or later. The tools are intended for the app’s own
 trusted server code. End users and agents should call the app’s domain tools.
 
 ## Verify locally
