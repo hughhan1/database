@@ -42,6 +42,10 @@ jobs:
           tags: ${{ env.IMAGE }}:runtime-${{ env.VERSION }}
           provenance: false
           sbom: false
+      - name: Start the built image as Holon runs it
+        env:
+          RUNTIME_DIGEST: ${{ steps.build.outputs.digest }}
+        run: .github/check-image.sh "$IMAGE@$RUNTIME_DIGEST"
       - name: Include the Holon tool contract in the image index
         env:
           RUNTIME_DIGEST: ${{ steps.build.outputs.digest }}

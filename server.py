@@ -66,7 +66,7 @@ class Result(BaseModel):
 RESULTS: Final = TypeAdapter(list[Result])
 
 
-server = MCPServer("io.github.hughhan1/database", version="0.1.6")
+server = MCPServer("io.github.hughhan1/database", version="0.1.7")
 
 
 def store() -> str:
