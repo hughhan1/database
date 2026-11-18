@@ -9,4 +9,4 @@ RUN --mount=from=uv,source=/uv,target=/bin/uv uv sync --locked --no-dev
 COPY server.py ./
 USER 10001:10001
 EXPOSE 3000
-CMD ["/app/.venv/bin/holon-serve", "server.py"]
+CMD ["/app/.venv/bin/python", "-m", "holon.serve", "server.py"]

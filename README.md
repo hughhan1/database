@@ -14,7 +14,7 @@ Replace `chat` in the caller list with your app’s name.
 - name: database
   registry:
     name: io.github.hughhan1/database
-    version: "0.1.6"
+    version: "0.1.7"
   access:
     server:
       callers: [chat]
