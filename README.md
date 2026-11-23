@@ -76,3 +76,12 @@ uv sync --locked
 uv run pytest
 holon types generate --contract .
 ```
+
+To check the image, build it and start it the way Holon runs it. The check
+needs Docker, jq and holon. It passes when the image serves the tools in
+`holon-contract.json` as the name and version in `server.json`.
+
+```sh
+docker build -t database .
+.github/check-image.sh database
+```

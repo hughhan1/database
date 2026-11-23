@@ -1,5 +1,5 @@
 name: CI
-on: [push, pull_request]
+on: [push, pull_request, workflow_call]
 permissions:
   contents: read
 
@@ -28,3 +28,19 @@ jobs:
       - run: uv run ruff check .
       - run: uv run mypy
       - run: uv run pytest
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install holon
+        run: |
+          archive="$RUNNER_TEMP/holon.tar.gz"
+          curl -fsSL -o "$archive" https://github.com/holon-sh/cli/releases/download/v0.0.1-dev.55/holon_0.0.1-dev.55_linux_amd64.tar.gz
+          echo "ecb31080271b84e384e7a98ae6ddfb525fdde4a9590749e28558fa961df5c3e9  $archive" | sha256sum -c
+          tar -xzf "$archive" -C "$RUNNER_TEMP" holon
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - run: docker build -t database .
+      - name: Serve the contract from the image as Holon runs it
+        run: .github/check-image.sh database
